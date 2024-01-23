@@ -5,8 +5,9 @@ import os
 import re
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, landscape
-
+import tempfile
 from io import BytesIO
+import numpy as np
 
 CARPETA_CARGA = 'uploads'
 
@@ -24,6 +25,10 @@ def generar_frames(ruta_imagen, contenedor_detecciones):
     resultado = resultados[0]
 
     imagen_cv = cv2.cvtColor(resultado.plot()[:, :, ::-1], cv2.COLOR_RGB2BGR)
+
+    # Guardar la imagen corregida en un archivo temporal
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_image:
+        cv2.imwrite(temp_image.name, imagen_cv)
 
     # Obtener información de conteo de clases desde la cadena de texto
     cont_detecciones_str = resultado.verbose()
@@ -45,8 +50,12 @@ def generar_frames(ruta_imagen, contenedor_detecciones):
     contenedor_detecciones.write("Porcentajes Relativos:")
     contenedor_detecciones.write(tabla_porcentajes)
 
-    generar_informe_pdf(ruta_imagen, cont_detecciones, tabla_porcentajes)
+    generar_informe_pdf(temp_image.name, cont_detecciones, tabla_porcentajes)
 
+    # Eliminar el archivo temporal después de usarlo
+    os.unlink(temp_image.name)
+
+# ... (resto del código)
 
 def generar_video_frames(ruta_video, contenedor_detecciones):
     modelo = YOLO("tomate2.pt")
@@ -61,7 +70,9 @@ def generar_video_frames(ruta_video, contenedor_detecciones):
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))  # Obtener el total de frames del video
 
-    generar_informe = False  # Variable de estado para controlar la generación del informe
+    # Variables para almacenar la información del último frame
+    ultimo_frame = None
+    ultimo_cont_detecciones = None
 
     while True:
         ret, frame = cap.read()
@@ -74,14 +85,12 @@ def generar_video_frames(ruta_video, contenedor_detecciones):
 
         imagen_cv = cv2.cvtColor(resultado.plot()[:, :, ::-1], cv2.COLOR_RGB2BGR)
 
+        # Actualizar la información de contabilización en tiempo real por clase
+        contenedor_detecciones.text("Detecciones por Clase:")
+
         # Obtener información de conteo de clases desde la cadena de texto
         cont_detecciones_str = resultado.verbose()
         cont_detecciones = extraer_cont_detecciones(cont_detecciones_str)
-
-        contenedor_frames.image(imagen_cv, channels="BGR", use_column_width=True)
-
-        # Actualizar la información de contabilización en tiempo real por clase
-        contenedor_detecciones.text("Detecciones por Clase:")
 
         # Actualizar los conteos acumulativos
         for nombre_clase, cont in cont_detecciones.items():
@@ -98,17 +107,21 @@ def generar_video_frames(ruta_video, contenedor_detecciones):
         contenedor_detecciones.write("Porcentajes Relativos:")
         contenedor_detecciones.write(tabla_porcentajes_global)
 
-        # Agregar botón para generar informe PDF solo en el último frame
-        if cap.get(cv2.CAP_PROP_POS_FRAMES) == total_frames - 1 and not generar_informe:
-            boton_key = f"boton_informe_pdf_{cap.get(cv2.CAP_PROP_POS_FRAMES)}"
-            if st.button("Generar Informe PDF", key=boton_key):
-                generar_informe = True  # Establecer la variable de estado
-                break  # Salir del bucle
+        # Guardar el último frame y conteos para el informe
+        ultimo_frame = imagen_cv
+        ultimo_cont_detecciones = cont_total
 
-    # Después del bucle, si la variable de estado indica que debemos generar el informe, lo generamos
-    if generar_informe:
-        generar_informe_pdf(ruta_video, cont_total, tabla_porcentajes_global)
-        st.stop()  # Interrumpir la ejecución de la aplicación
+        # Mostrar el frame actual
+        contenedor_frames.image(imagen_cv, channels="BGR", use_column_width=True)
+        
+    # Guardar la imagen corregida en un archivo temporal
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_image:
+        cv2.imwrite(temp_image.name, imagen_cv)    
+    # Después del bucle, generar el informe PDF con el último frame y los datos finales
+    if ultimo_frame is not None and ultimo_cont_detecciones is not None:
+        generar_informe_pdf(temp_image.name, cont_total, tabla_porcentajes_global)
+        
+    os.unlink(temp_image.name)
 
 
 def extraer_cont_detecciones(cont_detecciones_str):
@@ -167,7 +180,7 @@ def generar_informe_pdf(ruta_archivo, cont_detecciones, tabla_porcentajes):
         file_name="informe_deteccion.pdf",
         key="pdf_report",
     )
-
+    
 
 if __name__ == "__main__":
     st.title("Cargar Imagen o Video")
