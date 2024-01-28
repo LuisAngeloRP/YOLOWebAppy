@@ -7,7 +7,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, landscape
 import tempfile
 from io import BytesIO
-import numpy as np
 
 CARPETA_CARGA = 'uploads'
 
